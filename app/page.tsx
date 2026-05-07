@@ -2,22 +2,20 @@
 
 import { useState } from "react";
 import { ethers } from "ethers";
+import type { CSSProperties } from "react";
 
 const TOKENS = [
   {
-    name: "Tether",
     symbol: "USDT",
     address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
     coingeckoId: "tether",
   },
   {
-    name: "USD Coin",
     symbol: "USDC",
     address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     coingeckoId: "usd-coin",
   },
   {
-    name: "Dai",
     symbol: "DAI",
     address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
     coingeckoId: "dai",
@@ -29,13 +27,30 @@ const ERC20_ABI = [
   "function decimals() view returns (uint8)",
 ];
 
+type TokenBalance = {
+  symbol: string;
+  balance: string;
+  price: string;
+  value: string;
+};
+
+type Transaction = {
+  hash: string;
+  from: string;
+  to: string;
+  value: string;
+  timeStamp: string;
+};
+
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
   const [ethBalance, setEthBalance] = useState("0");
   const [network, setNetwork] = useState("");
-  const [tokens, setTokens] = useState<any[]>([]);
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [prices, setPrices] = useState<any>({});
   const [portfolioValue, setPortfolioValue] = useState("0.00");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [etherscanKey, setEtherscanKey] = useState("");
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
@@ -69,7 +84,6 @@ export default function Home() {
       setNetwork(networkData.name);
 
       const priceData = await getPrices();
-
       await loadPortfolio(provider, address, priceData);
 
       setStatus("Wallet connected successfully.");
@@ -89,8 +103,7 @@ export default function Home() {
     setEthBalance(eth.toFixed(6));
 
     let totalValue = eth * (priceData.ethereum?.usd || 0);
-
-    const loadedTokens = [];
+    const loadedTokens: TokenBalance[] = [];
 
     for (const token of TOKENS) {
       const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
@@ -105,7 +118,7 @@ export default function Home() {
       totalValue += tokenValue;
 
       loadedTokens.push({
-        ...token,
+        symbol: token.symbol,
         balance: tokenBalance.toFixed(4),
         price: tokenPrice.toFixed(2),
         value: tokenValue.toFixed(2),
@@ -116,6 +129,41 @@ export default function Home() {
     setPortfolioValue(totalValue.toFixed(2));
   }
 
+  async function loadTransactions() {
+    try {
+      if (!walletAddress) {
+        alert("Connect wallet first.");
+        return;
+      }
+
+      if (!etherscanKey) {
+        alert("Enter your Etherscan API key first.");
+        return;
+      }
+
+      const url =
+        `https://api.etherscan.io/v2/api?chainid=1` +
+        `&module=account&action=txlist` +
+        `&address=${walletAddress}` +
+        `&startblock=0&endblock=99999999&page=1&offset=10&sort=desc` +
+        `&apikey=${etherscanKey}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!Array.isArray(data.result)) {
+        setStatus("Could not load transactions.");
+        return;
+      }
+
+      setTransactions(data.result);
+      setStatus("Transaction history loaded.");
+    } catch (error) {
+      console.log(error);
+      setStatus("Transaction history failed.");
+    }
+  }
+
   async function refreshPortfolio() {
     try {
       if (!(window as any).ethereum || !walletAddress) return;
@@ -124,7 +172,6 @@ export default function Home() {
       const priceData = await getPrices();
 
       await loadPortfolio(provider, walletAddress, priceData);
-
       setStatus("Portfolio refreshed.");
     } catch (error) {
       console.log(error);
@@ -139,6 +186,7 @@ export default function Home() {
     setTokens([]);
     setPrices({});
     setPortfolioValue("0.00");
+    setTransactions([]);
     setToAddress("");
     setAmount("");
     setStatus("Wallet disconnected.");
@@ -205,7 +253,7 @@ export default function Home() {
         <h1 style={title}>My Crypto Wallet App</h1>
 
         <p style={subtitle}>
-          Track ETH, token balances, prices, and portfolio value.
+          Track wallet balance, tokens, prices, ETH transfers, and transaction history.
         </p>
 
         {!walletAddress ? (
@@ -221,12 +269,9 @@ export default function Home() {
         {walletAddress && (
           <>
             <div style={portfolioCard}>
-              <p style={label}>Total Portfolio Value</p>
+              <p style={darkLabel}>Total Portfolio Value</p>
               <h2 style={portfolioValueStyle}>${portfolioValue}</h2>
-
-              <p style={label}>
-                ETH Price: ${prices.ethereum?.usd || "Loading..."}
-              </p>
+              <p style={darkLabel}>ETH Price: ${prices.ethereum?.usd || "Loading..."}</p>
             </div>
 
             <div style={grid}>
@@ -235,8 +280,7 @@ export default function Home() {
 
                 <p style={label}>Address</p>
                 <p style={value}>
-                  {walletAddress.slice(0, 6)}...
-                  {walletAddress.slice(-4)}
+                  {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
                 </p>
 
                 <p style={label}>ETH Balance</p>
@@ -294,10 +338,64 @@ export default function Home() {
                   Send ETH
                 </button>
 
-                <p style={warning}>
-                  Be careful: transactions can use real crypto.
-                </p>
+                <p style={warning}>Be careful: transactions can use real crypto.</p>
               </div>
+            </div>
+
+            <div style={historyCard}>
+              <h2>Transaction History</h2>
+
+              <p style={label}>
+                Add your Etherscan API key to load the latest Ethereum mainnet transactions.
+              </p>
+
+              <input
+                value={etherscanKey}
+                onChange={(e) => setEtherscanKey(e.target.value)}
+                placeholder="Etherscan API key"
+                style={input}
+              />
+
+              <button onClick={loadTransactions} style={primaryButton}>
+                Load Transactions
+              </button>
+
+              {transactions.length > 0 && (
+                <div style={{ marginTop: "25px" }}>
+                  {transactions.map((tx) => {
+                    const incoming =
+                      tx.to?.toLowerCase() === walletAddress.toLowerCase();
+
+                    return (
+                      <div key={tx.hash} style={txRow}>
+                        <div>
+                          <strong style={{ color: incoming ? "#22c55e" : "#f97316" }}>
+                            {incoming ? "Incoming" : "Outgoing"}
+                          </strong>
+
+                          <p style={smallText}>
+                            {new Date(Number(tx.timeStamp) * 1000).toLocaleString()}
+                          </p>
+
+                          <p style={smallText}>
+                            Hash: {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
+                          </p>
+                        </div>
+
+                        <div style={{ textAlign: "right" }}>
+                          <strong>{Number(ethers.formatEther(tx.value)).toFixed(6)} ETH</strong>
+
+                          <p style={smallText}>
+                            {incoming ? "From" : "To"}:{" "}
+                            {(incoming ? tx.from : tx.to).slice(0, 6)}...
+                            {(incoming ? tx.from : tx.to).slice(-4)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -308,7 +406,7 @@ export default function Home() {
   );
 }
 
-const main = {
+const main: CSSProperties = {
   minHeight: "100vh",
   background:
     "radial-gradient(circle at top, #1e3a8a 0%, #0f172a 45%, #020617 100%)",
@@ -317,28 +415,28 @@ const main = {
   padding: "40px 20px",
 };
 
-const container = {
+const container: CSSProperties = {
   maxWidth: "1150px",
   margin: "0 auto",
-  textAlign: "center" as const,
+  textAlign: "center",
 };
 
-const tag = {
+const tag: CSSProperties = {
   color: "#38bdf8",
   fontWeight: "bold",
 };
 
-const title = {
+const title: CSSProperties = {
   fontSize: "52px",
   marginBottom: "10px",
 };
 
-const subtitle = {
+const subtitle: CSSProperties = {
   color: "#cbd5e1",
   marginBottom: "30px",
 };
 
-const portfolioCard = {
+const portfolioCard: CSSProperties = {
   marginTop: "35px",
   background: "linear-gradient(135deg, #38bdf8, #2563eb)",
   color: "#020617",
@@ -347,19 +445,19 @@ const portfolioCard = {
   boxShadow: "0 25px 70px rgba(0,0,0,0.4)",
 };
 
-const portfolioValueStyle = {
+const portfolioValueStyle: CSSProperties = {
   fontSize: "46px",
   margin: "10px 0",
 };
 
-const grid = {
+const grid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: "24px",
   marginTop: "35px",
 };
 
-const card = {
+const card: CSSProperties = {
   background: "rgba(30, 41, 59, 0.85)",
   border: "1px solid rgba(148, 163, 184, 0.2)",
   borderRadius: "22px",
@@ -367,7 +465,13 @@ const card = {
   boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
 };
 
-const primaryButton = {
+const historyCard: CSSProperties = {
+  ...card,
+  marginTop: "35px",
+  textAlign: "left",
+};
+
+const primaryButton: CSSProperties = {
   background: "#38bdf8",
   color: "#020617",
   border: "none",
@@ -376,9 +480,10 @@ const primaryButton = {
   cursor: "pointer",
   fontWeight: "bold",
   fontSize: "16px",
+  marginTop: "14px",
 };
 
-const dangerButton = {
+const dangerButton: CSSProperties = {
   background: "#ef4444",
   color: "white",
   border: "none",
@@ -389,7 +494,7 @@ const dangerButton = {
   fontSize: "16px",
 };
 
-const smallButton = {
+const smallButton: CSSProperties = {
   background: "#334155",
   color: "white",
   border: "none",
@@ -398,13 +503,13 @@ const smallButton = {
   cursor: "pointer",
 };
 
-const buttonRow = {
+const buttonRow: CSSProperties = {
   display: "flex",
   gap: "10px",
   justifyContent: "center",
 };
 
-const input = {
+const input: CSSProperties = {
   width: "100%",
   padding: "14px",
   marginTop: "12px",
@@ -412,24 +517,30 @@ const input = {
   border: "1px solid #475569",
   background: "#0f172a",
   color: "white",
+  boxSizing: "border-box",
 };
 
-const label = {
+const label: CSSProperties = {
   color: "#94a3b8",
   fontSize: "13px",
   marginTop: "18px",
 };
 
-const value = {
+const darkLabel: CSSProperties = {
+  color: "#1e293b",
+  fontSize: "13px",
+};
+
+const value: CSSProperties = {
   fontSize: "18px",
 };
 
-const bigValue = {
+const bigValue: CSSProperties = {
   fontSize: "30px",
   fontWeight: "bold",
 };
 
-const tokenRow = {
+const tokenRow: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -437,19 +548,27 @@ const tokenRow = {
   borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
 };
 
-const smallText = {
+const txRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "20px",
+  padding: "16px 0",
+  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const smallText: CSSProperties = {
   color: "#94a3b8",
   fontSize: "13px",
   margin: "4px 0 0",
 };
 
-const warning = {
+const warning: CSSProperties = {
   color: "#fbbf24",
   fontSize: "13px",
   marginTop: "15px",
 };
 
-const statusBox = {
+const statusBox: CSSProperties = {
   marginTop: "30px",
   background: "rgba(15, 23, 42, 0.85)",
   border: "1px solid rgba(148, 163, 184, 0.2)",
