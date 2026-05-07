@@ -3,6 +3,18 @@
 import { useState } from "react";
 import { ethers } from "ethers";
 import type { CSSProperties } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 
 const TOKENS = [
   {
@@ -26,6 +38,8 @@ const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
   "function decimals() view returns (uint8)",
 ];
+
+const COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444"];
 
 type TokenBalance = {
   symbol: string;
@@ -54,6 +68,24 @@ export default function Home() {
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
+
+  const portfolioChartData = [
+    { name: "Mon", value: 1200 },
+    { name: "Tue", value: 1800 },
+    { name: "Wed", value: 1500 },
+    { name: "Thu", value: 2400 },
+    { name: "Fri", value: 3200 },
+    { name: "Sat", value: 2800 },
+    { name: "Sun", value: 4200 },
+  ];
+
+  const tokenPieData = [
+    { name: "ETH", value: Number(portfolioValue) || 1 },
+    ...tokens.map((token) => ({
+      name: token.symbol,
+      value: Number(token.value) || 0,
+    })),
+  ];
 
   async function getPrices() {
     const ids = ["ethereum", ...TOKENS.map((t) => t.coingeckoId)].join(",");
@@ -107,7 +139,6 @@ export default function Home() {
 
     for (const token of TOKENS) {
       const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
-
       const rawBalance = await contract.balanceOf(address);
       const decimals = await contract.decimals();
 
@@ -127,6 +158,22 @@ export default function Home() {
 
     setTokens(loadedTokens);
     setPortfolioValue(totalValue.toFixed(2));
+  }
+
+  async function refreshPortfolio() {
+    try {
+      if (!(window as any).ethereum || !walletAddress) return;
+
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const priceData = await getPrices();
+
+      await loadPortfolio(provider, walletAddress, priceData);
+
+      setStatus("Portfolio refreshed.");
+    } catch (error) {
+      console.log(error);
+      setStatus("Could not refresh portfolio.");
+    }
   }
 
   async function loadTransactions() {
@@ -161,21 +208,6 @@ export default function Home() {
     } catch (error) {
       console.log(error);
       setStatus("Transaction history failed.");
-    }
-  }
-
-  async function refreshPortfolio() {
-    try {
-      if (!(window as any).ethereum || !walletAddress) return;
-
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const priceData = await getPrices();
-
-      await loadPortfolio(provider, walletAddress, priceData);
-      setStatus("Portfolio refreshed.");
-    } catch (error) {
-      console.log(error);
-      setStatus("Could not refresh portfolio.");
     }
   }
 
@@ -253,7 +285,7 @@ export default function Home() {
         <h1 style={title}>My Crypto Wallet App</h1>
 
         <p style={subtitle}>
-          Track wallet balance, tokens, prices, ETH transfers, and transaction history.
+          Track wallet balance, tokens, prices, charts, ETH transfers, and transaction history.
         </p>
 
         {!walletAddress ? (
@@ -342,11 +374,57 @@ export default function Home() {
               </div>
             </div>
 
+            <div style={chartGrid}>
+              <div style={card}>
+                <h2>Portfolio Growth</h2>
+
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={portfolioChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="name" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#38bdf8"
+                      strokeWidth={4}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={card}>
+                <h2>Token Allocation</h2>
+
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={tokenPieData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      dataKey="value"
+                      label
+                    >
+                      {tokenPieData.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             <div style={historyCard}>
               <h2>Transaction History</h2>
 
               <p style={label}>
-                Add your Etherscan API key to load the latest Ethereum mainnet transactions.
+                Add your Etherscan API key to load latest Ethereum mainnet transactions.
               </p>
 
               <input
@@ -453,6 +531,13 @@ const portfolioValueStyle: CSSProperties = {
 const grid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: "24px",
+  marginTop: "35px",
+};
+
+const chartGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: "24px",
   marginTop: "35px",
 };
