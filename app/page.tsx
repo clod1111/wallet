@@ -3,10 +3,34 @@
 import { useState } from "react";
 import { ethers } from "ethers";
 
+const TOKENS = [
+  {
+    name: "USDT",
+    symbol: "USDT",
+    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  },
+  {
+    name: "USDC",
+    symbol: "USDC",
+    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  },
+  {
+    name: "DAI",
+    symbol: "DAI",
+    address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+  },
+];
+
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+];
+
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
   const [balance, setBalance] = useState("");
   const [network, setNetwork] = useState("");
+  const [tokenBalances, setTokenBalances] = useState<any[]>([]);
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
@@ -29,6 +53,9 @@ export default function Home() {
 
       const networkData = await provider.getNetwork();
       setNetwork(networkData.name);
+
+      await loadTokenBalances(provider, address);
+
       setStatus("Wallet connected successfully.");
     } catch (error) {
       console.log(error);
@@ -36,10 +63,40 @@ export default function Home() {
     }
   }
 
+  async function loadTokenBalances(provider: ethers.BrowserProvider, address: string) {
+    try {
+      const balances = [];
+
+      for (const token of TOKENS) {
+        const contract = new ethers.Contract(
+          token.address,
+          ERC20_ABI,
+          provider
+        );
+
+        const rawBalance = await contract.balanceOf(address);
+        const decimals = await contract.decimals();
+
+        balances.push({
+          ...token,
+          balance: Number(
+            ethers.formatUnits(rawBalance, decimals)
+          ).toFixed(4),
+        });
+      }
+
+      setTokenBalances(balances);
+    } catch (error) {
+      console.log(error);
+      setStatus("Could not load token balances. Make sure you are on Ethereum mainnet.");
+    }
+  }
+
   function disconnectWallet() {
     setWalletAddress("");
     setBalance("");
     setNetwork("");
+    setTokenBalances([]);
     setToAddress("");
     setAmount("");
     setStatus("Wallet disconnected.");
@@ -50,17 +107,21 @@ export default function Home() {
     setStatus("Address copied.");
   }
 
-  async function refreshBalance() {
+  async function refreshBalances() {
     try {
       if (!(window as any).ethereum || !walletAddress) return;
 
       const provider = new ethers.BrowserProvider((window as any).ethereum);
+
       const walletBalance = await provider.getBalance(walletAddress);
       setBalance(Number(ethers.formatEther(walletBalance)).toFixed(6));
-      setStatus("Balance refreshed.");
+
+      await loadTokenBalances(provider, walletAddress);
+
+      setStatus("Balances refreshed.");
     } catch (error) {
       console.log(error);
-      setStatus("Could not refresh balance.");
+      setStatus("Could not refresh balances.");
     }
   }
 
@@ -102,7 +163,7 @@ export default function Home() {
       await tx.wait();
 
       setStatus("Transaction confirmed.");
-      await refreshBalance();
+      await refreshBalances();
       setToAddress("");
       setAmount("");
     } catch (error) {
@@ -112,33 +173,14 @@ export default function Home() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top, #1e3a8a 0%, #0f172a 45%, #020617 100%)",
-        color: "white",
-        fontFamily: "Arial",
-        padding: "40px 20px",
-      }}
-    >
-      <section
-        style={{
-          maxWidth: "900px",
-          margin: "0 auto",
-          textAlign: "center",
-        }}
-      >
-        <p style={{ color: "#38bdf8", fontWeight: "bold" }}>
-          Web3 Wallet Dashboard
-        </p>
+    <main style={main}>
+      <section style={container}>
+        <p style={tag}>Web3 Token Dashboard</p>
 
-        <h1 style={{ fontSize: "52px", marginBottom: "10px" }}>
-          My Crypto Wallet App
-        </h1>
+        <h1 style={title}>My Crypto Wallet App</h1>
 
-        <p style={{ color: "#cbd5e1", marginBottom: "30px" }}>
-          Connect your wallet, check your balance, and send ETH safely.
+        <p style={subtitle}>
+          Connect your wallet, view ETH and token balances, and send ETH.
         </p>
 
         {!walletAddress ? (
@@ -162,21 +204,42 @@ export default function Home() {
                 {walletAddress.slice(-4)}
               </p>
 
-              <p style={label}>Balance</p>
+              <p style={label}>ETH Balance</p>
               <p style={bigValue}>{balance} ETH</p>
 
               <p style={label}>Network</p>
               <p style={value}>{network}</p>
 
-              <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <div style={buttonRow}>
                 <button onClick={copyAddress} style={smallButton}>
                   Copy
                 </button>
 
-                <button onClick={refreshBalance} style={smallButton}>
+                <button onClick={refreshBalances} style={smallButton}>
                   Refresh
                 </button>
               </div>
+            </div>
+
+            <div style={card}>
+              <h2>Token Balances</h2>
+
+              {tokenBalances.length === 0 ? (
+                <p style={label}>
+                  No token data loaded.
+                </p>
+              ) : (
+                tokenBalances.map((token) => (
+                  <div key={token.symbol} style={tokenRow}>
+                    <span>{token.symbol}</span>
+                    <strong>{token.balance}</strong>
+                  </div>
+                ))
+              )}
+
+              <p style={warning}>
+                Token balances currently use Ethereum mainnet token contracts.
+              </p>
             </div>
 
             <div style={card}>
@@ -200,29 +263,47 @@ export default function Home() {
                 Send ETH
               </button>
 
-              <p style={{ color: "#fbbf24", fontSize: "13px", marginTop: "15px" }}>
+              <p style={warning}>
                 Be careful: mainnet transactions use real crypto.
               </p>
             </div>
           </div>
         )}
 
-        {status && (
-          <div style={statusBox}>
-            {status}
-          </div>
-        )}
+        {status && <div style={statusBox}>{status}</div>}
       </section>
     </main>
   );
 }
 
-const card = {
-  background: "rgba(30, 41, 59, 0.85)",
-  border: "1px solid rgba(148, 163, 184, 0.2)",
-  borderRadius: "22px",
-  padding: "28px",
-  boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+const main = {
+  minHeight: "100vh",
+  background:
+    "radial-gradient(circle at top, #1e3a8a 0%, #0f172a 45%, #020617 100%)",
+  color: "white",
+  fontFamily: "Arial",
+  padding: "40px 20px",
+};
+
+const container = {
+  maxWidth: "1100px",
+  margin: "0 auto",
+  textAlign: "center" as const,
+};
+
+const tag = {
+  color: "#38bdf8",
+  fontWeight: "bold",
+};
+
+const title = {
+  fontSize: "52px",
+  marginBottom: "10px",
+};
+
+const subtitle = {
+  color: "#cbd5e1",
+  marginBottom: "30px",
 };
 
 const grid = {
@@ -230,6 +311,14 @@ const grid = {
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: "24px",
   marginTop: "35px",
+};
+
+const card = {
+  background: "rgba(30, 41, 59, 0.85)",
+  border: "1px solid rgba(148, 163, 184, 0.2)",
+  borderRadius: "22px",
+  padding: "28px",
+  boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
 };
 
 const primaryButton = {
@@ -263,6 +352,12 @@ const smallButton = {
   cursor: "pointer",
 };
 
+const buttonRow = {
+  display: "flex",
+  gap: "10px",
+  justifyContent: "center",
+};
+
 const input = {
   width: "100%",
   padding: "14px",
@@ -286,6 +381,20 @@ const value = {
 const bigValue = {
   fontSize: "30px",
   fontWeight: "bold",
+};
+
+const tokenRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "14px 0",
+  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const warning = {
+  color: "#fbbf24",
+  fontSize: "13px",
+  marginTop: "15px",
 };
 
 const statusBox = {
