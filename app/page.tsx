@@ -4,14 +4,34 @@ import { useState } from "react";
 import { ethers } from "ethers";
 import type { CSSProperties } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 
 const TOKENS = [
-  { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", coingeckoId: "tether" },
-  { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", coingeckoId: "usd-coin" },
-  { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", coingeckoId: "dai" },
+  {
+    symbol: "USDT",
+    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    coingeckoId: "tether",
+  },
+  {
+    symbol: "USDC",
+    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    coingeckoId: "usd-coin",
+  },
+  {
+    symbol: "DAI",
+    address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+    coingeckoId: "dai",
+  },
 ];
 
 const ERC20_ABI = [
@@ -19,13 +39,29 @@ const ERC20_ABI = [
   "function decimals() view returns (uint8)",
 ];
 
-const COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444"];
+const COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444", "#a855f7"];
 
 type TokenBalance = {
   symbol: string;
   balance: string;
   price: string;
   value: string;
+};
+
+type Transfer = {
+  hash: string;
+  from: string;
+  to: string;
+  asset: string;
+  value: number | null;
+  category: string;
+};
+
+type NFT = {
+  tokenId: string;
+  name: string;
+  collection: string;
+  image: string;
 };
 
 export default function Home() {
@@ -36,6 +72,9 @@ export default function Home() {
   const [prices, setPrices] = useState<any>({});
   const [portfolioValue, setPortfolioValue] = useState("0.00");
   const [gasPrice, setGasPrice] = useState("0");
+  const [alchemyKey, setAlchemyKey] = useState("");
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [nfts, setNfts] = useState<NFT[]>([]);
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
@@ -139,6 +178,115 @@ export default function Home() {
     setPortfolioValue(totalValue.toFixed(2));
   }
 
+  async function loadAlchemyData() {
+    try {
+      if (!walletAddress) {
+        alert("Connect wallet first.");
+        return;
+      }
+
+      if (!alchemyKey) {
+        alert("Paste your Alchemy API key first.");
+        return;
+      }
+
+      setStatus("Loading Alchemy transactions and NFTs...");
+
+      const rpcUrl = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
+
+      const transferResponse = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "alchemy_getAssetTransfers",
+          params: [
+            {
+              fromBlock: "0x0",
+              toBlock: "latest",
+              fromAddress: walletAddress,
+              category: ["external", "erc20", "erc721", "erc1155"],
+              withMetadata: true,
+              maxCount: "0xA",
+              order: "desc",
+            },
+          ],
+        }),
+      });
+
+      const transferData = await transferResponse.json();
+
+      const outgoingTransfers = transferData.result?.transfers || [];
+
+      const incomingResponse = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: 2,
+          jsonrpc: "2.0",
+          method: "alchemy_getAssetTransfers",
+          params: [
+            {
+              fromBlock: "0x0",
+              toBlock: "latest",
+              toAddress: walletAddress,
+              category: ["external", "erc20", "erc721", "erc1155"],
+              withMetadata: true,
+              maxCount: "0xA",
+              order: "desc",
+            },
+          ],
+        }),
+      });
+
+      const incomingData = await incomingResponse.json();
+      const incomingTransfers = incomingData.result?.transfers || [];
+
+      const combinedTransfers = [...outgoingTransfers, ...incomingTransfers]
+        .slice(0, 12)
+        .map((tx: any) => ({
+          hash: tx.hash,
+          from: tx.from || "",
+          to: tx.to || "",
+          asset: tx.asset || tx.category,
+          value: tx.value ?? null,
+          category: tx.category,
+        }));
+
+      setTransfers(combinedTransfers);
+
+      const nftResponse = await fetch(
+        `${rpcUrl}/getNFTsForOwner?owner=${walletAddress}&withMetadata=true&pageSize=8`
+      );
+
+      const nftData = await nftResponse.json();
+
+      const loadedNFTs =
+        nftData.ownedNfts?.map((nft: any) => ({
+          tokenId: nft.tokenId || "",
+          name: nft.title || nft.name || "Unnamed NFT",
+          collection: nft.contractMetadata?.name || nft.collection?.name || "Unknown Collection",
+          image:
+            nft.media?.[0]?.gateway ||
+            nft.image?.cachedUrl ||
+            nft.image?.originalUrl ||
+            "",
+        })) || [];
+
+      setNfts(loadedNFTs);
+
+      setStatus("Alchemy transactions and NFTs loaded.");
+    } catch (error) {
+      console.log(error);
+      setStatus("Could not load Alchemy data.");
+    }
+  }
+
   async function refreshPortfolio() {
     try {
       if (!(window as any).ethereum || !walletAddress) return;
@@ -164,6 +312,8 @@ export default function Home() {
     setPrices({});
     setPortfolioValue("0.00");
     setGasPrice("0");
+    setTransfers([]);
+    setNfts([]);
     setToAddress("");
     setAmount("");
     setStatus("Wallet disconnected.");
@@ -235,12 +385,12 @@ export default function Home() {
   return (
     <main style={main}>
       <section style={container}>
-        <p style={tag}>Web3 Analytics Dashboard</p>
+        <p style={tag}>Web3 NFT + Transaction Dashboard</p>
 
         <h1 style={title}>My Crypto Wallet App</h1>
 
         <p style={subtitle}>
-          Live prices, wallet analytics, token portfolio, gas data, charts, and ETH transfers.
+          Live prices, wallet analytics, NFTs, transfers, gas data, charts, and ETH sends.
         </p>
 
         {!walletAddress ? (
@@ -290,8 +440,8 @@ export default function Home() {
               </div>
 
               <div style={analyticsCard}>
-                <p style={label}>Tracked Tokens</p>
-                <h3>{tokens.length}</h3>
+                <p style={label}>NFTs Loaded</p>
+                <h3>{nfts.length}</h3>
               </div>
             </div>
 
@@ -411,6 +561,85 @@ export default function Home() {
                 </ResponsiveContainer>
               </div>
             </div>
+
+            <div style={historyCard}>
+              <h2>Alchemy Data</h2>
+
+              <p style={label}>
+                Paste your Alchemy API key to load real wallet transfers and NFTs.
+              </p>
+
+              <input
+                value={alchemyKey}
+                onChange={(e) => setAlchemyKey(e.target.value)}
+                placeholder="Alchemy API key"
+                style={input}
+              />
+
+              <button onClick={loadAlchemyData} style={primaryButton}>
+                Load Transfers + NFTs
+              </button>
+            </div>
+
+            <div style={historyCard}>
+              <h2>Real Transaction Activity</h2>
+
+              {transfers.length === 0 ? (
+                <p style={label}>No transfers loaded yet.</p>
+              ) : (
+                transfers.map((tx, index) => {
+                  const incoming =
+                    tx.to?.toLowerCase() === walletAddress.toLowerCase();
+
+                  return (
+                    <div key={`${tx.hash}-${index}`} style={txRow}>
+                      <div>
+                        <strong style={{ color: incoming ? "#22c55e" : "#f97316" }}>
+                          {incoming ? "Incoming" : "Outgoing"} {tx.asset || tx.category}
+                        </strong>
+
+                        <p style={smallText}>
+                          Hash: {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
+                        </p>
+
+                        <p style={smallText}>
+                          {incoming ? "From" : "To"}:{" "}
+                          {(incoming ? tx.from : tx.to)?.slice(0, 6)}...
+                          {(incoming ? tx.from : tx.to)?.slice(-4)}
+                        </p>
+                      </div>
+
+                      <strong>
+                        {tx.value !== null ? tx.value : "NFT"}
+                      </strong>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={historyCard}>
+              <h2>NFT Gallery</h2>
+
+              {nfts.length === 0 ? (
+                <p style={label}>No NFTs loaded yet.</p>
+              ) : (
+                <div style={nftGrid}>
+                  {nfts.map((nft, index) => (
+                    <div key={`${nft.tokenId}-${index}`} style={nftCard}>
+                      {nft.image ? (
+                        <img src={nft.image} alt={nft.name} style={nftImage} />
+                      ) : (
+                        <div style={emptyNft}>No Image</div>
+                      )}
+
+                      <h3>{nft.name}</h3>
+                      <p style={smallText}>{nft.collection}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -500,6 +729,12 @@ const card: CSSProperties = {
   boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
 };
 
+const historyCard: CSSProperties = {
+  ...card,
+  marginTop: "35px",
+  textAlign: "left",
+};
+
 const primaryButton: CSSProperties = {
   background: "#38bdf8",
   color: "#020617",
@@ -575,6 +810,44 @@ const tokenRow: CSSProperties = {
   alignItems: "center",
   padding: "14px 0",
   borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const txRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "20px",
+  padding: "16px 0",
+  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const nftGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "18px",
+  marginTop: "20px",
+};
+
+const nftCard: CSSProperties = {
+  background: "#0f172a",
+  borderRadius: "16px",
+  padding: "14px",
+  border: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const nftImage: CSSProperties = {
+  width: "100%",
+  height: "180px",
+  objectFit: "cover",
+  borderRadius: "12px",
+};
+
+const emptyNft: CSSProperties = {
+  height: "180px",
+  borderRadius: "12px",
+  background: "#334155",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const smallText: CSSProperties = {
