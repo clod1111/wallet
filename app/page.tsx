@@ -5,19 +5,22 @@ import { ethers } from "ethers";
 
 const TOKENS = [
   {
-    name: "USDT",
+    name: "Tether",
     symbol: "USDT",
     address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    coingeckoId: "tether",
   },
   {
-    name: "USDC",
+    name: "USD Coin",
     symbol: "USDC",
     address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    coingeckoId: "usd-coin",
   },
   {
-    name: "DAI",
+    name: "Dai",
     symbol: "DAI",
     address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+    coingeckoId: "dai",
   },
 ];
 
@@ -28,12 +31,26 @@ const ERC20_ABI = [
 
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
-  const [balance, setBalance] = useState("");
+  const [ethBalance, setEthBalance] = useState("0");
   const [network, setNetwork] = useState("");
-  const [tokenBalances, setTokenBalances] = useState<any[]>([]);
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [prices, setPrices] = useState<any>({});
+  const [portfolioValue, setPortfolioValue] = useState("0.00");
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
+
+  async function getPrices() {
+    const ids = ["ethereum", ...TOKENS.map((t) => t.coingeckoId)].join(",");
+
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+    );
+
+    const data = await res.json();
+    setPrices(data);
+    return data;
+  }
 
   async function connectWallet() {
     try {
@@ -48,13 +65,12 @@ export default function Home() {
 
       setWalletAddress(address);
 
-      const walletBalance = await provider.getBalance(address);
-      setBalance(Number(ethers.formatEther(walletBalance)).toFixed(6));
-
       const networkData = await provider.getNetwork();
       setNetwork(networkData.name);
 
-      await loadTokenBalances(provider, address);
+      const priceData = await getPrices();
+
+      await loadPortfolio(provider, address, priceData);
 
       setStatus("Wallet connected successfully.");
     } catch (error) {
@@ -63,40 +79,66 @@ export default function Home() {
     }
   }
 
-  async function loadTokenBalances(provider: ethers.BrowserProvider, address: string) {
+  async function loadPortfolio(
+    provider: ethers.BrowserProvider,
+    address: string,
+    priceData: any
+  ) {
+    const walletBalance = await provider.getBalance(address);
+    const eth = Number(ethers.formatEther(walletBalance));
+    setEthBalance(eth.toFixed(6));
+
+    let totalValue = eth * (priceData.ethereum?.usd || 0);
+
+    const loadedTokens = [];
+
+    for (const token of TOKENS) {
+      const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+
+      const rawBalance = await contract.balanceOf(address);
+      const decimals = await contract.decimals();
+
+      const tokenBalance = Number(ethers.formatUnits(rawBalance, decimals));
+      const tokenPrice = priceData[token.coingeckoId]?.usd || 0;
+      const tokenValue = tokenBalance * tokenPrice;
+
+      totalValue += tokenValue;
+
+      loadedTokens.push({
+        ...token,
+        balance: tokenBalance.toFixed(4),
+        price: tokenPrice.toFixed(2),
+        value: tokenValue.toFixed(2),
+      });
+    }
+
+    setTokens(loadedTokens);
+    setPortfolioValue(totalValue.toFixed(2));
+  }
+
+  async function refreshPortfolio() {
     try {
-      const balances = [];
+      if (!(window as any).ethereum || !walletAddress) return;
 
-      for (const token of TOKENS) {
-        const contract = new ethers.Contract(
-          token.address,
-          ERC20_ABI,
-          provider
-        );
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const priceData = await getPrices();
 
-        const rawBalance = await contract.balanceOf(address);
-        const decimals = await contract.decimals();
+      await loadPortfolio(provider, walletAddress, priceData);
 
-        balances.push({
-          ...token,
-          balance: Number(
-            ethers.formatUnits(rawBalance, decimals)
-          ).toFixed(4),
-        });
-      }
-
-      setTokenBalances(balances);
+      setStatus("Portfolio refreshed.");
     } catch (error) {
       console.log(error);
-      setStatus("Could not load token balances. Make sure you are on Ethereum mainnet.");
+      setStatus("Could not refresh portfolio.");
     }
   }
 
   function disconnectWallet() {
     setWalletAddress("");
-    setBalance("");
+    setEthBalance("0");
     setNetwork("");
-    setTokenBalances([]);
+    setTokens([]);
+    setPrices({});
+    setPortfolioValue("0.00");
     setToAddress("");
     setAmount("");
     setStatus("Wallet disconnected.");
@@ -105,24 +147,6 @@ export default function Home() {
   function copyAddress() {
     navigator.clipboard.writeText(walletAddress);
     setStatus("Address copied.");
-  }
-
-  async function refreshBalances() {
-    try {
-      if (!(window as any).ethereum || !walletAddress) return;
-
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-
-      const walletBalance = await provider.getBalance(walletAddress);
-      setBalance(Number(ethers.formatEther(walletBalance)).toFixed(6));
-
-      await loadTokenBalances(provider, walletAddress);
-
-      setStatus("Balances refreshed.");
-    } catch (error) {
-      console.log(error);
-      setStatus("Could not refresh balances.");
-    }
   }
 
   async function sendETH() {
@@ -143,7 +167,7 @@ export default function Home() {
       }
 
       const confirmSend = confirm(
-        `Send ${amount} ETH to ${toAddress}? This can use real money if you are on mainnet.`
+        `Send ${amount} ETH to ${toAddress}? This can use real money.`
       );
 
       if (!confirmSend) return;
@@ -163,7 +187,8 @@ export default function Home() {
       await tx.wait();
 
       setStatus("Transaction confirmed.");
-      await refreshBalances();
+      await refreshPortfolio();
+
       setToAddress("");
       setAmount("");
     } catch (error) {
@@ -175,12 +200,12 @@ export default function Home() {
   return (
     <main style={main}>
       <section style={container}>
-        <p style={tag}>Web3 Token Dashboard</p>
+        <p style={tag}>Web3 Portfolio Dashboard</p>
 
         <h1 style={title}>My Crypto Wallet App</h1>
 
         <p style={subtitle}>
-          Connect your wallet, view ETH and token balances, and send ETH.
+          Track ETH, token balances, prices, and portfolio value.
         </p>
 
         {!walletAddress ? (
@@ -194,80 +219,87 @@ export default function Home() {
         )}
 
         {walletAddress && (
-          <div style={grid}>
-            <div style={card}>
-              <h2>Wallet</h2>
+          <>
+            <div style={portfolioCard}>
+              <p style={label}>Total Portfolio Value</p>
+              <h2 style={portfolioValueStyle}>${portfolioValue}</h2>
 
-              <p style={label}>Address</p>
-              <p style={value}>
-                {walletAddress.slice(0, 6)}...
-                {walletAddress.slice(-4)}
+              <p style={label}>
+                ETH Price: ${prices.ethereum?.usd || "Loading..."}
               </p>
+            </div>
 
-              <p style={label}>ETH Balance</p>
-              <p style={bigValue}>{balance} ETH</p>
+            <div style={grid}>
+              <div style={card}>
+                <h2>Wallet</h2>
 
-              <p style={label}>Network</p>
-              <p style={value}>{network}</p>
+                <p style={label}>Address</p>
+                <p style={value}>
+                  {walletAddress.slice(0, 6)}...
+                  {walletAddress.slice(-4)}
+                </p>
 
-              <div style={buttonRow}>
-                <button onClick={copyAddress} style={smallButton}>
-                  Copy
+                <p style={label}>ETH Balance</p>
+                <p style={bigValue}>{ethBalance} ETH</p>
+
+                <p style={label}>Network</p>
+                <p style={value}>{network}</p>
+
+                <div style={buttonRow}>
+                  <button onClick={copyAddress} style={smallButton}>
+                    Copy
+                  </button>
+
+                  <button onClick={refreshPortfolio} style={smallButton}>
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div style={card}>
+                <h2>Token Portfolio</h2>
+
+                {tokens.map((token) => (
+                  <div key={token.symbol} style={tokenRow}>
+                    <div>
+                      <strong>{token.symbol}</strong>
+                      <p style={smallText}>
+                        {token.balance} × ${token.price}
+                      </p>
+                    </div>
+
+                    <strong>${token.value}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <div style={card}>
+                <h2>Send ETH</h2>
+
+                <input
+                  value={toAddress}
+                  onChange={(e) => setToAddress(e.target.value)}
+                  placeholder="Recipient address"
+                  style={input}
+                />
+
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Amount in ETH"
+                  style={input}
+                />
+
+                <button onClick={sendETH} style={primaryButton}>
+                  Send ETH
                 </button>
 
-                <button onClick={refreshBalances} style={smallButton}>
-                  Refresh
-                </button>
+                <p style={warning}>
+                  Be careful: transactions can use real crypto.
+                </p>
               </div>
             </div>
-
-            <div style={card}>
-              <h2>Token Balances</h2>
-
-              {tokenBalances.length === 0 ? (
-                <p style={label}>
-                  No token data loaded.
-                </p>
-              ) : (
-                tokenBalances.map((token) => (
-                  <div key={token.symbol} style={tokenRow}>
-                    <span>{token.symbol}</span>
-                    <strong>{token.balance}</strong>
-                  </div>
-                ))
-              )}
-
-              <p style={warning}>
-                Token balances currently use Ethereum mainnet token contracts.
-              </p>
-            </div>
-
-            <div style={card}>
-              <h2>Send ETH</h2>
-
-              <input
-                value={toAddress}
-                onChange={(e) => setToAddress(e.target.value)}
-                placeholder="Recipient address"
-                style={input}
-              />
-
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Amount in ETH"
-                style={input}
-              />
-
-              <button onClick={sendETH} style={primaryButton}>
-                Send ETH
-              </button>
-
-              <p style={warning}>
-                Be careful: mainnet transactions use real crypto.
-              </p>
-            </div>
-          </div>
+          </>
         )}
 
         {status && <div style={statusBox}>{status}</div>}
@@ -286,7 +318,7 @@ const main = {
 };
 
 const container = {
-  maxWidth: "1100px",
+  maxWidth: "1150px",
   margin: "0 auto",
   textAlign: "center" as const,
 };
@@ -304,6 +336,20 @@ const title = {
 const subtitle = {
   color: "#cbd5e1",
   marginBottom: "30px",
+};
+
+const portfolioCard = {
+  marginTop: "35px",
+  background: "linear-gradient(135deg, #38bdf8, #2563eb)",
+  color: "#020617",
+  borderRadius: "24px",
+  padding: "30px",
+  boxShadow: "0 25px 70px rgba(0,0,0,0.4)",
+};
+
+const portfolioValueStyle = {
+  fontSize: "46px",
+  margin: "10px 0",
 };
 
 const grid = {
@@ -389,6 +435,12 @@ const tokenRow = {
   alignItems: "center",
   padding: "14px 0",
   borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const smallText = {
+  color: "#94a3b8",
+  fontSize: "13px",
+  margin: "4px 0 0",
 };
 
 const warning = {
