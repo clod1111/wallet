@@ -4,34 +4,14 @@ import { useState } from "react";
 import { ethers } from "ethers";
 import type { CSSProperties } from "react";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 
 const TOKENS = [
-  {
-    symbol: "USDT",
-    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    coingeckoId: "tether",
-  },
-  {
-    symbol: "USDC",
-    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-    coingeckoId: "usd-coin",
-  },
-  {
-    symbol: "DAI",
-    address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-    coingeckoId: "dai",
-  },
+  { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", coingeckoId: "tether" },
+  { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", coingeckoId: "usd-coin" },
+  { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", coingeckoId: "dai" },
 ];
 
 const ERC20_ABI = [
@@ -48,14 +28,6 @@ type TokenBalance = {
   value: string;
 };
 
-type Transaction = {
-  hash: string;
-  from: string;
-  to: string;
-  value: string;
-  timeStamp: string;
-};
-
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
   const [ethBalance, setEthBalance] = useState("0");
@@ -63,8 +35,7 @@ export default function Home() {
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [prices, setPrices] = useState<any>({});
   const [portfolioValue, setPortfolioValue] = useState("0.00");
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [etherscanKey, setEtherscanKey] = useState("");
+  const [gasPrice, setGasPrice] = useState("0");
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
@@ -80,18 +51,15 @@ export default function Home() {
   ];
 
   const tokenPieData = [
-    { name: "ETH", value: Number(portfolioValue) || 1 },
-    ...tokens.map((token) => ({
-      name: token.symbol,
-      value: Number(token.value) || 0,
-    })),
+    { name: "ETH", value: Number(ethBalance) * (prices.ethereum?.usd || 0) || 1 },
+    ...tokens.map((t) => ({ name: t.symbol, value: Number(t.value) || 0 })),
   ];
 
   async function getPrices() {
     const ids = ["ethereum", ...TOKENS.map((t) => t.coingeckoId)].join(",");
 
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_market_cap=true&include_24hr_change=true`
     );
 
     const data = await res.json();
@@ -115,6 +83,8 @@ export default function Home() {
       const networkData = await provider.getNetwork();
       setNetwork(networkData.name);
 
+      await loadGasPrice(provider);
+
       const priceData = await getPrices();
       await loadPortfolio(provider, address, priceData);
 
@@ -122,6 +92,14 @@ export default function Home() {
     } catch (error) {
       console.log(error);
       setStatus("Wallet connection failed.");
+    }
+  }
+
+  async function loadGasPrice(provider: ethers.BrowserProvider) {
+    const feeData = await provider.getFeeData();
+
+    if (feeData.gasPrice) {
+      setGasPrice(Number(ethers.formatUnits(feeData.gasPrice, "gwei")).toFixed(2));
     }
   }
 
@@ -139,6 +117,7 @@ export default function Home() {
 
     for (const token of TOKENS) {
       const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+
       const rawBalance = await contract.balanceOf(address);
       const decimals = await contract.decimals();
 
@@ -165,49 +144,15 @@ export default function Home() {
       if (!(window as any).ethereum || !walletAddress) return;
 
       const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const priceData = await getPrices();
+      await loadGasPrice(provider);
 
+      const priceData = await getPrices();
       await loadPortfolio(provider, walletAddress, priceData);
 
-      setStatus("Portfolio refreshed.");
+      setStatus("Analytics refreshed.");
     } catch (error) {
       console.log(error);
-      setStatus("Could not refresh portfolio.");
-    }
-  }
-
-  async function loadTransactions() {
-    try {
-      if (!walletAddress) {
-        alert("Connect wallet first.");
-        return;
-      }
-
-      if (!etherscanKey) {
-        alert("Enter your Etherscan API key first.");
-        return;
-      }
-
-      const url =
-        `https://api.etherscan.io/v2/api?chainid=1` +
-        `&module=account&action=txlist` +
-        `&address=${walletAddress}` +
-        `&startblock=0&endblock=99999999&page=1&offset=10&sort=desc` +
-        `&apikey=${etherscanKey}`;
-
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (!Array.isArray(data.result)) {
-        setStatus("Could not load transactions.");
-        return;
-      }
-
-      setTransactions(data.result);
-      setStatus("Transaction history loaded.");
-    } catch (error) {
-      console.log(error);
-      setStatus("Transaction history failed.");
+      setStatus("Could not refresh analytics.");
     }
   }
 
@@ -218,7 +163,7 @@ export default function Home() {
     setTokens([]);
     setPrices({});
     setPortfolioValue("0.00");
-    setTransactions([]);
+    setGasPrice("0");
     setToAddress("");
     setAmount("");
     setStatus("Wallet disconnected.");
@@ -277,15 +222,25 @@ export default function Home() {
     }
   }
 
+  const ethUsd = prices.ethereum?.usd || 0;
+  const ethChange = prices.ethereum?.usd_24h_change || 0;
+  const ethMarketCap = prices.ethereum?.usd_market_cap || 0;
+  const ethValue = Number(ethBalance) * ethUsd;
+  const tokenTotal = tokens.reduce((sum, t) => sum + Number(t.value), 0);
+  const ethAllocation =
+    Number(portfolioValue) > 0 ? ((ethValue / Number(portfolioValue)) * 100).toFixed(1) : "0";
+  const tokenAllocation =
+    Number(portfolioValue) > 0 ? ((tokenTotal / Number(portfolioValue)) * 100).toFixed(1) : "0";
+
   return (
     <main style={main}>
       <section style={container}>
-        <p style={tag}>Web3 Portfolio Dashboard</p>
+        <p style={tag}>Web3 Analytics Dashboard</p>
 
         <h1 style={title}>My Crypto Wallet App</h1>
 
         <p style={subtitle}>
-          Track wallet balance, tokens, prices, charts, ETH transfers, and transaction history.
+          Live prices, wallet analytics, token portfolio, gas data, charts, and ETH transfers.
         </p>
 
         {!walletAddress ? (
@@ -303,7 +258,41 @@ export default function Home() {
             <div style={portfolioCard}>
               <p style={darkLabel}>Total Portfolio Value</p>
               <h2 style={portfolioValueStyle}>${portfolioValue}</h2>
-              <p style={darkLabel}>ETH Price: ${prices.ethereum?.usd || "Loading..."}</p>
+              <p style={darkLabel}>ETH Price: ${ethUsd}</p>
+            </div>
+
+            <div style={analyticsGrid}>
+              <div style={analyticsCard}>
+                <p style={label}>ETH 24h Change</p>
+                <h3 style={{ color: ethChange >= 0 ? "#22c55e" : "#ef4444" }}>
+                  {ethChange.toFixed(2)}%
+                </h3>
+              </div>
+
+              <div style={analyticsCard}>
+                <p style={label}>ETH Market Cap</p>
+                <h3>${ethMarketCap.toLocaleString()}</h3>
+              </div>
+
+              <div style={analyticsCard}>
+                <p style={label}>Gas Price</p>
+                <h3>{gasPrice} Gwei</h3>
+              </div>
+
+              <div style={analyticsCard}>
+                <p style={label}>ETH Allocation</p>
+                <h3>{ethAllocation}%</h3>
+              </div>
+
+              <div style={analyticsCard}>
+                <p style={label}>Token Allocation</p>
+                <h3>{tokenAllocation}%</h3>
+              </div>
+
+              <div style={analyticsCard}>
+                <p style={label}>Tracked Tokens</p>
+                <h3>{tokens.length}</h3>
+              </div>
             </div>
 
             <div style={grid}>
@@ -317,6 +306,9 @@ export default function Home() {
 
                 <p style={label}>ETH Balance</p>
                 <p style={bigValue}>{ethBalance} ETH</p>
+
+                <p style={label}>ETH Value</p>
+                <p style={value}>${ethValue.toFixed(2)}</p>
 
                 <p style={label}>Network</p>
                 <p style={value}>{network}</p>
@@ -419,62 +411,6 @@ export default function Home() {
                 </ResponsiveContainer>
               </div>
             </div>
-
-            <div style={historyCard}>
-              <h2>Transaction History</h2>
-
-              <p style={label}>
-                Add your Etherscan API key to load latest Ethereum mainnet transactions.
-              </p>
-
-              <input
-                value={etherscanKey}
-                onChange={(e) => setEtherscanKey(e.target.value)}
-                placeholder="Etherscan API key"
-                style={input}
-              />
-
-              <button onClick={loadTransactions} style={primaryButton}>
-                Load Transactions
-              </button>
-
-              {transactions.length > 0 && (
-                <div style={{ marginTop: "25px" }}>
-                  {transactions.map((tx) => {
-                    const incoming =
-                      tx.to?.toLowerCase() === walletAddress.toLowerCase();
-
-                    return (
-                      <div key={tx.hash} style={txRow}>
-                        <div>
-                          <strong style={{ color: incoming ? "#22c55e" : "#f97316" }}>
-                            {incoming ? "Incoming" : "Outgoing"}
-                          </strong>
-
-                          <p style={smallText}>
-                            {new Date(Number(tx.timeStamp) * 1000).toLocaleString()}
-                          </p>
-
-                          <p style={smallText}>
-                            Hash: {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
-                          </p>
-                        </div>
-
-                        <div style={{ textAlign: "right" }}>
-                          <strong>{Number(ethers.formatEther(tx.value)).toFixed(6)} ETH</strong>
-
-                          <p style={smallText}>
-                            {incoming ? "From" : "To"}:{" "}
-                            {(incoming ? tx.from : tx.to).slice(0, 6)}...
-                            {(incoming ? tx.from : tx.to).slice(-4)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </>
         )}
 
@@ -528,6 +464,20 @@ const portfolioValueStyle: CSSProperties = {
   margin: "10px 0",
 };
 
+const analyticsGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: "16px",
+  marginTop: "25px",
+};
+
+const analyticsCard: CSSProperties = {
+  background: "rgba(30, 41, 59, 0.85)",
+  border: "1px solid rgba(148, 163, 184, 0.2)",
+  borderRadius: "18px",
+  padding: "18px",
+};
+
 const grid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
@@ -548,12 +498,6 @@ const card: CSSProperties = {
   borderRadius: "22px",
   padding: "28px",
   boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
-};
-
-const historyCard: CSSProperties = {
-  ...card,
-  marginTop: "35px",
-  textAlign: "left",
 };
 
 const primaryButton: CSSProperties = {
@@ -630,14 +574,6 @@ const tokenRow: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "14px 0",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
-};
-
-const txRow: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "20px",
-  padding: "16px 0",
   borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
 };
 
