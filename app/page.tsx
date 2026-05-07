@@ -1,5 +1,11 @@
 "use client";
 
+declare global {
+  interface Window {
+    ethereum: any;
+  }
+}
+
 import { useState } from "react";
 import { ethers } from "ethers";
 
@@ -19,16 +25,28 @@ export default function Home() {
       }
 
       const provider = new ethers.BrowserProvider(window.ethereum);
-      const accounts = await provider.send("eth_requestAccounts", []);
+
+      const accounts = await provider.send(
+        "eth_requestAccounts",
+        []
+      );
+
       const address = accounts[0];
 
       setWalletAddress(address);
 
-      const walletBalance = await provider.getBalance(address);
-      setBalance(ethers.formatEther(walletBalance));
+      const walletBalance =
+        await provider.getBalance(address);
 
-      const networkData = await provider.getNetwork();
+      setBalance(
+        ethers.formatEther(walletBalance)
+      );
+
+      const networkData =
+        await provider.getNetwork();
+
       setNetwork(networkData.name);
+
     } catch (error) {
       console.log(error);
       setStatus("Wallet connection failed.");
@@ -48,31 +66,50 @@ export default function Home() {
       }
 
       if (!toAddress || !amount) {
-        alert("Enter recipient address and amount.");
+        alert("Enter recipient and amount.");
         return;
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
+      const provider =
+        new ethers.BrowserProvider(window.ethereum);
 
-      setStatus("Waiting for wallet confirmation...");
+      const signer =
+        await provider.getSigner();
 
-      const tx = await signer.sendTransaction({
-        to: toAddress,
-        value: ethers.parseEther(amount),
-      });
+      setStatus(
+        "Waiting for wallet confirmation..."
+      );
 
-      setStatus("Transaction sent: " + tx.hash);
+      const tx =
+        await signer.sendTransaction({
+          to: toAddress,
+          value: ethers.parseEther(amount),
+        });
+
+      setStatus(
+        "Transaction sent: " + tx.hash
+      );
 
       await tx.wait();
 
-      setStatus("Transaction confirmed!");
+      setStatus(
+        "Transaction confirmed!"
+      );
 
-      const newBalance = await provider.getBalance(walletAddress);
-      setBalance(ethers.formatEther(newBalance));
+      const newBalance =
+        await provider.getBalance(
+          walletAddress
+        );
+
+      setBalance(
+        ethers.formatEther(newBalance)
+      );
+
     } catch (error) {
       console.log(error);
-      setStatus("Transaction failed or cancelled.");
+      setStatus(
+        "Transaction failed or cancelled."
+      );
     }
   }
 
@@ -89,7 +126,9 @@ export default function Home() {
         paddingTop: "120px",
       }}
     >
-      <h1 style={{ fontSize: "48px" }}>My Crypto Wallet App</h1>
+      <h1 style={{ fontSize: "48px" }}>
+        My Crypto Wallet App
+      </h1>
 
       <button
         onClick={connectWallet}
@@ -117,13 +156,19 @@ export default function Home() {
           }}
         >
           <p>
-            Connected: {walletAddress.slice(0, 6)}...
+            Connected:{" "}
+            {walletAddress.slice(0, 6)}
+            ...
             {walletAddress.slice(-4)}
           </p>
 
-          <p>Balance: {balance} ETH</p>
+          <p>
+            Balance: {balance} ETH
+          </p>
 
-          <p>Network: {network}</p>
+          <p>
+            Network: {network}
+          </p>
 
           <button
             onClick={copyAddress}
@@ -155,7 +200,9 @@ export default function Home() {
 
           <input
             value={toAddress}
-            onChange={(e) => setToAddress(e.target.value)}
+            onChange={(e) =>
+              setToAddress(e.target.value)
+            }
             placeholder="Recipient address"
             style={{
               width: "100%",
@@ -168,7 +215,9 @@ export default function Home() {
 
           <input
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) =>
+              setAmount(e.target.value)
+            }
             placeholder="Amount in ETH"
             style={{
               width: "100%",
@@ -194,7 +243,12 @@ export default function Home() {
           </button>
 
           {status && (
-            <p style={{ marginTop: "15px", fontSize: "14px" }}>
+            <p
+              style={{
+                marginTop: "15px",
+                fontSize: "14px",
+              }}
+            >
               {status}
             </p>
           )}
