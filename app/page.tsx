@@ -3,12 +3,6 @@
 import { useState } from "react";
 import { ethers } from "ethers";
 
-declare global {
-  interface Window {
-    ethereum: any;
-  }
-}
-
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
   const [balance, setBalance] = useState("");
@@ -19,12 +13,14 @@ export default function Home() {
 
   async function connectWallet() {
     try {
-      if (!window.ethereum) {
+      if (!(window as any).ethereum) {
         alert("Install MetaMask first");
         return;
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(
+        (window as any).ethereum
+      );
 
       const accounts = await provider.send(
         "eth_requestAccounts",
@@ -60,7 +56,7 @@ export default function Home() {
 
   async function sendETH() {
     try {
-      if (!window.ethereum) {
+      if (!(window as any).ethereum) {
         alert("Install MetaMask first");
         return;
       }
@@ -71,7 +67,9 @@ export default function Home() {
       }
 
       const provider =
-        new ethers.BrowserProvider(window.ethereum);
+        new ethers.BrowserProvider(
+          (window as any).ethereum
+        );
 
       const signer =
         await provider.getSigner();
@@ -158,7 +156,7 @@ export default function Home() {
           <p>
             Connected:{" "}
             {walletAddress.slice(0, 6)}
-           ...
+            ...
             {walletAddress.slice(-4)}
           </p>
 
