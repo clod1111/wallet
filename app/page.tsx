@@ -1,13 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { ethers } from "ethers";
+
 declare global {
   interface Window {
     ethereum: any;
   }
 }
-
-import { useState } from "react";
-import { ethers } from "ethers";
 
 export default function Home() {
   const [walletAddress, setWalletAddress] = useState("");
@@ -158,7 +158,7 @@ export default function Home() {
           <p>
             Connected:{" "}
             {walletAddress.slice(0, 6)}
-            ...
+           ...
             {walletAddress.slice(-4)}
           </p>
 
